@@ -30,7 +30,11 @@ npm run dev
 
 - Issue comment
 
-本地调试时可以使用 Smee 或 ngrok 把 GitHub webhook 转发到本地 Probot 服务。
+本地调试时可以使用 Smee 或 ngrok 把 GitHub webhook 转发到本地 Probot 服务。Smee 需要先在浏览器打开 `https://smee.io/new` 创建 channel，再复制生成的 channel URL：
+
+```bash
+npx smee-client --url https://smee.io/your-channel-id --target http://localhost:3000/api/github/webhooks
+```
 
 ## 环境变量
 
