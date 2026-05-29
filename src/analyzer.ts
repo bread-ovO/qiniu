@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import { buildDiffIndex, filterInlineSuggestions, formatDiffForModel } from "./diff.js";
 import { REVIEW_JSON_SCHEMA, SYSTEM_PROMPT } from "./prompts.js";
 import { reviewReportSchema } from "./schemas.js";
-import type { AnalysisResult, PullRequestContext, ReviewReport } from "./types.js";
+import type { AnalysisResult, PullRequestContext, ReviewOptions, ReviewReport } from "./types.js";
 
 export class PullRequestAnalyzer {
   private readonly client: OpenAI;
@@ -13,33 +13,47 @@ export class PullRequestAnalyzer {
     this.client = client;
   }
 
-  async analyze(pr: PullRequestContext): Promise<AnalysisResult> {
+  async analyze(pr: PullRequestContext, options?: ReviewOptions): Promise<AnalysisResult> {
     const startedAt = Date.now();
-    const { content, skippedFiles } = formatDiffForModel(pr.files, this.config.maxDiffChars);
+    const resolvedOptions = options ?? {
+      mode: "all" as const,
+      maxInlineComments: this.config.maxInlineComments,
+      minInlineConfidence: this.config.minInlineConfidence,
+      maxDiffChars: this.config.maxDiffChars,
+      policy: { ignorePaths: [], reviewInstructions: [] }
+    };
+    const { content, skippedFiles } = formatDiffForModel(
+      pr.files,
+      resolvedOptions.maxDiffChars,
+      resolvedOptions.policy.ignorePaths
+    );
     const diffIndex = buildDiffIndex(pr.files);
-    const rawReport = await this.callModel(pr, content, skippedFiles);
+    const rawReport = await this.callModel(pr, content, skippedFiles, resolvedOptions);
     const report = this.normalizeReport(rawReport);
 
     report.inlineSuggestions = filterInlineSuggestions(
       report.inlineSuggestions,
       diffIndex,
-      this.config.maxInlineComments
+      resolvedOptions.maxInlineComments,
+      resolvedOptions.minInlineConfidence
     );
 
     return {
       report,
       durationMs: Date.now() - startedAt,
       skippedFiles,
-      scannedFiles: pr.files.length - skippedFiles.length
+      scannedFiles: pr.files.length - skippedFiles.length,
+      options: resolvedOptions
     };
   }
 
   private async callModel(
     pr: PullRequestContext,
     diffContent: string,
-    skippedFiles: string[]
+    skippedFiles: string[],
+    options: ReviewOptions
   ): Promise<ReviewReport> {
-    const input = buildModelInput(pr, diffContent, skippedFiles);
+    const input = buildModelInput(pr, diffContent, skippedFiles, options);
     const response = await this.client.responses.create({
       model: this.config.openAIModel,
       input: [
@@ -78,11 +92,16 @@ export class PullRequestAnalyzer {
   }
 }
 
-function buildModelInput(pr: PullRequestContext, diffContent: string, skippedFiles: string[]): string {
+function buildModelInput(
+  pr: PullRequestContext,
+  diffContent: string,
+  skippedFiles: string[],
+  options: ReviewOptions
+): string {
   return [
-    "Review this GitHub pull request.",
+    "请评审这个 GitHub Pull Request。",
     "",
-    "Pull request metadata:",
+    "Pull Request 元数据：",
     JSON.stringify(
       {
         repository: `${pr.owner}/${pr.repo}`,
@@ -108,7 +127,19 @@ function buildModelInput(pr: PullRequestContext, diffContent: string, skippedFil
       2
     ),
     "",
-    "Unified diffs:",
-    diffContent || "No textual diff available."
+    "团队评审策略：",
+    JSON.stringify(
+      {
+        ignorePaths: options.policy.ignorePaths,
+        reviewInstructions: options.policy.reviewInstructions,
+        minInlineConfidence: options.minInlineConfidence,
+        maxInlineComments: options.maxInlineComments
+      },
+      null,
+      2
+    ),
+    "",
+    "Unified diff：",
+    diffContent || "没有可用的文本 diff。"
   ].join("\n");
 }

@@ -1,5 +1,6 @@
 import { REPORT_MARKER, renderProcessingComment } from "./render.js";
-import type { AnalysisResult, PullRequestContext } from "./types.js";
+import { DEFAULT_REVIEW_POLICY, parseReviewPolicy } from "./policy.js";
+import type { AnalysisResult, PullRequestContext, ReviewPolicy } from "./types.js";
 
 type Octokit = any;
 
@@ -40,6 +41,32 @@ export async function getPullRequestContext(
       rawUrl: file.raw_url
     }))
   };
+}
+
+export async function getReviewPolicy(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  ref: string
+): Promise<ReviewPolicy> {
+  try {
+    const response = await octokit.rest.repos.getContent({
+      ...repoRef,
+      path: ".ai-review.yml",
+      ref
+    });
+
+    if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+      return DEFAULT_REVIEW_POLICY;
+    }
+
+    return parseReviewPolicy(Buffer.from(response.data.content, "base64").toString("utf8"));
+  } catch (error: any) {
+    if (error.status === 404) {
+      return DEFAULT_REVIEW_POLICY;
+    }
+
+    throw error;
+  }
 }
 
 export async function ensureReportComment(
@@ -93,6 +120,10 @@ export async function publishInlineReview(
   headSha: string,
   result: AnalysisResult
 ): Promise<void> {
+  if (result.options.mode === "report") {
+    return;
+  }
+
   if (result.report.inlineSuggestions.length === 0) {
     return;
   }
@@ -102,12 +133,12 @@ export async function publishInlineReview(
     pull_number: pullNumber,
     commit_id: headSha,
     event: "COMMENT",
-    body: "AI review suggestions with high confidence.",
+    body: "AI 代码评审发现以下高置信度建议。",
     comments: result.report.inlineSuggestions.map((suggestion) => ({
       path: suggestion.file,
       line: suggestion.line,
       side: "RIGHT",
-      body: `[${suggestion.severity.toUpperCase()} | confidence ${suggestion.confidence.toFixed(2)}]\n\n${suggestion.body}`
+      body: `[${suggestion.severity.toUpperCase()} | 置信度 ${suggestion.confidence.toFixed(2)}]\n\n${suggestion.body}`
     }))
   });
 }

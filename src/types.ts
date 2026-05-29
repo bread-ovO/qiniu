@@ -25,6 +25,22 @@ export interface PullRequestContext {
   files: ChangedFile[];
 }
 
+export interface ReviewPolicy {
+  ignorePaths: string[];
+  maxInlineComments?: number;
+  minInlineConfidence?: number;
+  maxDiffChars?: number;
+  reviewInstructions?: string[];
+}
+
+export interface ReviewOptions {
+  mode: "report" | "inline" | "all";
+  maxInlineComments: number;
+  minInlineConfidence: number;
+  maxDiffChars: number;
+  policy: ReviewPolicy;
+}
+
 export interface RiskFinding {
   title: string;
   severity: RiskLevel;
@@ -64,4 +80,5 @@ export interface AnalysisResult {
   durationMs: number;
   skippedFiles: string[];
   scannedFiles: number;
+  options: ReviewOptions;
 }

@@ -2,51 +2,66 @@ import type { AnalysisResult, ReviewReport } from "./types.js";
 
 export const REPORT_MARKER = "<!-- ai-pr-review-bot:report -->";
 
+const MODE_LABELS: Record<AnalysisResult["options"]["mode"], string> = {
+  report: "仅报告",
+  inline: "行内建议",
+  all: "报告 + 行内建议"
+};
+
+const RISK_LABELS: Record<ReviewReport["riskLevel"], string> = {
+  critical: "严重",
+  high: "高",
+  medium: "中",
+  low: "低"
+};
+
 export function renderReport(result: AnalysisResult): string {
   const { report, durationMs, scannedFiles, skippedFiles } = result;
   const sections = [
     REPORT_MARKER,
-    "## AI PR Review",
+    "## AI 代码评审",
     "",
-    `**Risk:** ${report.riskLevel.toUpperCase()}  `,
-    `**Change type:** ${report.changeType}  `,
-    `**Analyzed:** ${scannedFiles} files in ${(durationMs / 1000).toFixed(1)}s`,
-    skippedFiles.length > 0 ? `**Skipped:** ${skippedFiles.join(", ")}` : "",
+    `**风险等级：** ${riskLabel(report.riskLevel)}  `,
+    `**变更类型：** ${report.changeType}  `,
+    `**运行模式：** ${MODE_LABELS[result.options.mode]}  `,
+    `**行内评论置信度阈值：** ${result.options.minInlineConfidence.toFixed(2)}  `,
+    `**分析范围：** ${scannedFiles} 个文件，耗时 ${(durationMs / 1000).toFixed(1)}s`,
+    skippedFiles.length > 0 ? `**跳过文件：** ${skippedFiles.join(", ")}` : "",
     "",
-    "### Summary",
+    "### 变更总结",
     report.summary,
     "",
-    renderList("### Key Changes", report.keyChanges),
+    renderList("### 关键变更", report.keyChanges),
     renderFindings(report),
-    renderList("### Review Suggestions", report.reviewSuggestions),
-    renderList("### Test Suggestions", report.testSuggestions)
+    renderList("### 评审建议", report.reviewSuggestions),
+    renderList("### 测试建议", report.testSuggestions)
   ];
 
   return sections.filter(Boolean).join("\n");
 }
 
 export function renderProcessingComment(): string {
-  return `${REPORT_MARKER}\n## AI PR Review\n\nAnalysis is running.`;
+  return `${REPORT_MARKER}\n## AI 代码评审\n\n正在分析，请稍候。`;
 }
 
 export function renderFailureComment(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return `${REPORT_MARKER}\n## AI PR Review\n\nAnalysis failed: ${message}`;
+  return `${REPORT_MARKER}\n## AI 代码评审\n\n分析失败：${message}`;
 }
 
 function renderFindings(report: ReviewReport): string {
   if (report.riskFindings.length === 0) {
-    return "### Risk Findings\nNo high-confidence risks found.";
+    return "### 风险发现\n未发现高置信度风险。";
   }
 
-  const lines = ["### Risk Findings"];
+  const lines = ["### 风险发现"];
   for (const finding of report.riskFindings) {
     const location = finding.line ? `${finding.file}:${finding.line}` : finding.file;
     lines.push(
-      `- **${finding.severity.toUpperCase()}** ${finding.title} (${location}, confidence ${finding.confidence.toFixed(2)})`,
-      `  Evidence: ${finding.evidence}`,
-      `  Impact: ${finding.impact}`,
-      `  Recommendation: ${finding.recommendation}`
+      `- **${riskLabel(finding.severity)}** ${finding.title}（${location}，置信度 ${finding.confidence.toFixed(2)}）`,
+      `  证据：${finding.evidence}`,
+      `  影响：${finding.impact}`,
+      `  建议：${finding.recommendation}`
     );
   }
 
@@ -55,8 +70,12 @@ function renderFindings(report: ReviewReport): string {
 
 function renderList(title: string, items: string[]): string {
   if (items.length === 0) {
-    return `${title}\nNone.`;
+    return `${title}\n暂无。`;
   }
 
   return [title, ...items.map((item) => `- ${item}`)].join("\n");
+}
+
+function riskLabel(level: ReviewReport["riskLevel"]): string {
+  return `${RISK_LABELS[level]}（${level}）`;
 }

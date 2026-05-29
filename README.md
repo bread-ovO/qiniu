@@ -41,6 +41,7 @@ WEBHOOK_SECRET=...
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.2
 MAX_INLINE_COMMENTS=5
+MIN_INLINE_CONFIDENCE=0.75
 MAX_DIFF_CHARS=120000
 ```
 
@@ -54,6 +55,50 @@ MAX_DIFF_CHARS=120000
 6. Bot 过滤 inline 建议，仅保留 `confidence >= 0.75` 且位于新增 diff 行的建议。
 7. Bot 更新总报告评论，并发布高置信度 inline review。
 
+## 命令参数
+
+基础命令：
+
+```text
+/ai-review
+```
+
+可选参数：
+
+```text
+/ai-review --report-only
+/ai-review --inline-only
+/ai-review --all
+/ai-review --max-inline=3
+/ai-review --min-confidence=0.85
+/ai-review --max-diff=80000
+```
+
+- `--report-only`：只更新总报告评论。
+- `--inline-only`：保留 inline 发布能力，报告仍会作为运行状态和结果载体更新。
+- `--all`：输出报告和 inline review。
+- `--max-inline`：本次运行最多发布的 inline 评论数。
+- `--min-confidence`：本次运行发布 inline 评论的最低置信度。
+- `--max-diff`：本次运行发送给模型的最大 diff 字符数。
+
+## 团队配置
+
+仓库根目录可以添加 `.ai-review.yml`：
+
+```yaml
+ignorePaths:
+  - docs/**
+  - generated/**
+maxInlineComments: 3
+minInlineConfidence: 0.82
+maxDiffChars: 80000
+reviewInstructions:
+  - 优先关注鉴权、计费和数据一致性风险。
+  - 对迁移脚本重点检查回滚路径和幂等性。
+```
+
+命令参数优先级高于 `.ai-review.yml`，`.ai-review.yml` 优先级高于环境变量默认值。
+
 ## 模型选择
 
 默认模型是 `gpt-5.2`，适合作为代码理解和 agentic task 的主力模型。模型名通过 `OPENAI_MODEL` 配置，团队可以按场景切换到更快或成本更低的模型。
@@ -66,7 +111,7 @@ MAX_DIFF_CHARS=120000
 
 - 始终包含 PR 标题、描述、作者、base/head 分支、commit message 和文件变更元数据。
 - 按 `MAX_DIFF_CHARS` 限制 unified diff 输入规模。
-- 跳过生成文件和 lockfile。
+- 跳过生成文件、lockfile，以及 `.ai-review.yml` 中配置的忽略路径。
 - 要求每条风险都引用 diff 中的具体证据。
 - 低置信度内容进入总报告，高置信度且可定位的内容进入 inline 评论。
 
@@ -81,7 +126,7 @@ npm run build
 ## 未来扩展
 
 - 仓库级索引：补充跨文件调用链、历史实现和测试覆盖上下文。
-- 团队策略文件：通过 `.ai-review.yml` 配置重点关注的风险、忽略路径和严重等级阈值。
+- 更丰富的团队策略：支持严重等级阈值、按目录配置 reviewer persona 和语言栈规则。
 - CI 集成：只在 critical 且高置信度的风险上阻塞合并。
 - 反馈学习：记录人工采纳、驳回和修改建议，持续调整提示词和阈值。
 - 多模型复核：对安全敏感 PR 使用第二模型交叉验证。

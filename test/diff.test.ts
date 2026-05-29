@@ -43,7 +43,8 @@ describe("diff helpers", () => {
         { file: "src/example.ts", line: 2, severity: "high", confidence: 0.6, body: "Low confidence." }
       ],
       index,
-      5
+      5,
+      0.75
     );
 
     expect(suggestions).toHaveLength(1);
@@ -52,6 +53,7 @@ describe("diff helpers", () => {
 
   it("skips generated files", () => {
     expect(shouldSkipFile("package-lock.json")).toBe(true);
+    expect(shouldSkipFile("src/generated/client.ts", ["src/generated/**"])).toBe(true);
     expect(shouldSkipFile("src/index.ts")).toBe(false);
   });
 });

@@ -1,9 +1,11 @@
 import "dotenv/config";
 import type { Probot } from "probot";
 import { PullRequestAnalyzer } from "./analyzer.js";
+import { buildReviewOptions, parseReviewCommand } from "./command.js";
 import {
   addEyesReaction,
   ensureReportComment,
+  getReviewPolicy,
   getPullRequestContext,
   publishInlineReview,
   updateReportComment
@@ -14,8 +16,9 @@ export default function app(app: Probot) {
   app.on("issue_comment.created", async (context) => {
     const payload = context.payload;
     const commentBody = payload.comment.body ?? "";
+    const command = parseReviewCommand(commentBody);
 
-    if (!payload.issue.pull_request || !isReviewCommand(commentBody)) {
+    if (!payload.issue.pull_request || !command.shouldRun) {
       return;
     }
 
@@ -28,7 +31,9 @@ export default function app(app: Probot) {
 
     try {
       const prContext = await getPullRequestContext(context.octokit, repoRef, pullNumber);
-      const result = await new PullRequestAnalyzer().analyze(prContext);
+      const policy = await getReviewPolicy(context.octokit, repoRef, prContext.headSha);
+      const options = buildReviewOptions(policy, command.overrides);
+      const result = await new PullRequestAnalyzer().analyze(prContext, options);
 
       await updateReportComment(context.octokit, repoRef, reportCommentId, renderReport(result));
       await publishInlineReview(context.octokit, repoRef, pullNumber, prContext.headSha, result);
@@ -40,8 +45,5 @@ export default function app(app: Probot) {
 }
 
 export function isReviewCommand(body: string): boolean {
-  return body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .some((line) => line === "/ai-review");
+  return parseReviewCommand(body).shouldRun;
 }

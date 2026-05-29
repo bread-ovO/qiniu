@@ -11,8 +11,8 @@ const GENERATED_FILE_PATTERNS = [
   /\.snap$/
 ];
 
-export function shouldSkipFile(filename: string): boolean {
-  return GENERATED_FILE_PATTERNS.some((pattern) => pattern.test(filename));
+export function shouldSkipFile(filename: string, ignorePaths: string[] = []): boolean {
+  return GENERATED_FILE_PATTERNS.some((pattern) => pattern.test(filename)) || matchesAnyPattern(filename, ignorePaths);
 }
 
 export function buildDiffIndex(files: ChangedFile[]): DiffIndex {
@@ -60,22 +60,27 @@ export function buildDiffIndex(files: ChangedFile[]): DiffIndex {
 export function filterInlineSuggestions(
   suggestions: InlineSuggestion[],
   diffIndex: DiffIndex,
-  maxInlineComments: number
+  maxInlineComments: number,
+  minInlineConfidence: number
 ): InlineSuggestion[] {
   return suggestions
-    .filter((suggestion) => suggestion.confidence >= 0.75)
+    .filter((suggestion) => suggestion.confidence >= minInlineConfidence)
     .filter((suggestion) => diffIndex.addedLinesByFile.get(suggestion.file)?.has(suggestion.line))
     .sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
     .slice(0, maxInlineComments);
 }
 
-export function formatDiffForModel(files: ChangedFile[], maxChars: number): { content: string; skippedFiles: string[] } {
+export function formatDiffForModel(
+  files: ChangedFile[],
+  maxChars: number,
+  ignorePaths: string[] = []
+): { content: string; skippedFiles: string[] } {
   const skippedFiles: string[] = [];
   let remaining = maxChars;
   const sections: string[] = [];
 
   for (const file of files) {
-    if (shouldSkipFile(file.filename) || !file.patch) {
+    if (shouldSkipFile(file.filename, ignorePaths) || !file.patch) {
       skippedFiles.push(file.filename);
       continue;
     }
@@ -103,6 +108,19 @@ export function formatDiffForModel(files: ChangedFile[], maxChars: number): { co
   }
 
   return { content: sections.join("\n\n---\n\n"), skippedFiles };
+}
+
+function matchesAnyPattern(filename: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => globToRegExp(pattern).test(filename));
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "__DOUBLE_STAR__")
+    .replace(/\*/g, "[^/]*")
+    .replace(/__DOUBLE_STAR__/g, ".*");
+  return new RegExp(`^${escaped}$`);
 }
 
 function severityScore(severity: InlineSuggestion["severity"]): number {
