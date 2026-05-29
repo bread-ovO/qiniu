@@ -40,10 +40,28 @@ PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
 WEBHOOK_SECRET=...
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.2
+OPENAI_BASE_URL=
+OPENAI_API_MODE=responses
 MAX_INLINE_COMMENTS=5
 MIN_INLINE_CONFIDENCE=0.75
 MAX_DIFF_CHARS=120000
 ```
+
+### OpenAI-compatible API
+
+如果使用兼容 OpenAI Chat Completions 的服务，把 `OPENAI_BASE_URL` 指向对方的 `/v1` 地址，并把 `OPENAI_API_MODE` 设置为 `chat`：
+
+```bash
+OPENAI_API_KEY=your-provider-key
+OPENAI_MODEL=qwen-plus
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_MODE=chat
+```
+
+两种模型调用模式：
+
+- `responses`：使用 OpenAI Responses API，适合官方 OpenAI 模型。
+- `chat`：使用 `/v1/chat/completions`，适合 OpenAI-compatible API。
 
 ## 工作流程
 
@@ -101,9 +119,9 @@ reviewInstructions:
 
 ## 模型选择
 
-默认模型是 `gpt-5.2`，适合作为代码理解和 agentic task 的主力模型。模型名通过 `OPENAI_MODEL` 配置，团队可以按场景切换到更快或成本更低的模型。
+默认模型是 `gpt-5.2`，适合作为代码理解和 agentic task 的主力模型。模型名通过 `OPENAI_MODEL` 配置，团队可以按场景切换到更快、成本更低或第三方兼容服务提供的模型。
 
-系统使用 OpenAI Responses API 的 JSON Schema 输出能力，让模型结果保持可解析、可校验、可过滤。Bot 会在发布前再次校验结构、置信度和 diff 行号，降低误报带来的 Review 噪音。
+系统默认使用 OpenAI Responses API 的 JSON Schema 输出能力。兼容模式使用 Chat Completions 的 JSON Schema 输出。Bot 会在发布前再次校验结构、置信度和 diff 行号，降低误报带来的 Review 噪音。
 
 ## 上下文获取方式
 

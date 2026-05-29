@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { loadConfig } from "./config.js";
+import { type AppConfig, loadConfig } from "./config.js";
 import { buildDiffIndex, filterInlineSuggestions, formatDiffForModel } from "./diff.js";
 import { REVIEW_JSON_SCHEMA, SYSTEM_PROMPT } from "./prompts.js";
 import { reviewReportSchema } from "./schemas.js";
@@ -7,10 +7,11 @@ import type { AnalysisResult, PullRequestContext, ReviewOptions, ReviewReport } 
 
 export class PullRequestAnalyzer {
   private readonly client: OpenAI;
-  private readonly config = loadConfig();
+  private readonly config: AppConfig;
 
-  constructor(client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })) {
-    this.client = client;
+  constructor(client?: OpenAI, config = loadConfig()) {
+    this.config = config;
+    this.client = client ?? createOpenAIClient(config);
   }
 
   async analyze(pr: PullRequestContext, options?: ReviewOptions): Promise<AnalysisResult> {
@@ -54,6 +55,15 @@ export class PullRequestAnalyzer {
     options: ReviewOptions
   ): Promise<ReviewReport> {
     const input = buildModelInput(pr, diffContent, skippedFiles, options);
+    const outputText =
+      this.config.openAIApiMode === "chat"
+        ? await this.callChatCompletions(input)
+        : await this.callResponses(input);
+
+    return parseReport(outputText);
+  }
+
+  private async callResponses(input: string): Promise<string> {
     const response = await this.client.responses.create({
       model: this.config.openAIModel,
       input: [
@@ -69,13 +79,38 @@ export class PullRequestAnalyzer {
         }
       }
     });
-
     const outputText = response.output_text;
+
     if (!outputText) {
       throw new Error("OpenAI returned an empty response");
     }
 
-    return reviewReportSchema.parse(JSON.parse(outputText));
+    return outputText;
+  }
+
+  private async callChatCompletions(input: string): Promise<string> {
+    const response = await this.client.chat.completions.create({
+      model: this.config.openAIModel,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: input }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          schema: REVIEW_JSON_SCHEMA,
+          strict: true
+        }
+      }
+    } as any);
+    const outputText = response.choices[0]?.message?.content;
+
+    if (!outputText) {
+      throw new Error("OpenAI-compatible API returned an empty response");
+    }
+
+    return outputText;
   }
 
   private normalizeReport(report: ReviewReport): ReviewReport {
@@ -90,6 +125,17 @@ export class PullRequestAnalyzer {
       inlineSuggestions: report.inlineSuggestions.slice(0, 10)
     };
   }
+}
+
+function createOpenAIClient(config: AppConfig): OpenAI {
+  return new OpenAI({
+    apiKey: config.openAIAPIKey,
+    baseURL: config.openAIBaseURL
+  });
+}
+
+function parseReport(outputText: string): ReviewReport {
+  return reviewReportSchema.parse(JSON.parse(outputText));
 }
 
 function buildModelInput(
