@@ -5,6 +5,7 @@ export interface AppConfig {
   openAIModel: string;
   openAIBaseURL?: string;
   openAIApiMode: OpenAIApiMode;
+  openAIChatResponseFormat: "json_object" | "json_schema";
   maxInlineComments: number;
   minInlineConfidence: number;
   maxDiffChars: number;
@@ -16,6 +17,7 @@ export function loadConfig(): AppConfig {
     openAIModel: process.env.OPENAI_MODEL ?? "gpt-5.2",
     openAIBaseURL: emptyToUndefined(process.env.OPENAI_BASE_URL),
     openAIApiMode: parseApiMode(process.env.OPENAI_API_MODE),
+    openAIChatResponseFormat: parseChatResponseFormat(process.env.OPENAI_CHAT_RESPONSE_FORMAT),
     maxInlineComments: Number.parseInt(process.env.MAX_INLINE_COMMENTS ?? "5", 10),
     minInlineConfidence: Number.parseFloat(process.env.MIN_INLINE_CONFIDENCE ?? "0.75"),
     maxDiffChars: Number.parseInt(process.env.MAX_DIFF_CHARS ?? "120000", 10)
@@ -28,4 +30,8 @@ function parseApiMode(value: string | undefined): OpenAIApiMode {
 
 function emptyToUndefined(value: string | undefined): string | undefined {
   return value && value.trim().length > 0 ? value : undefined;
+}
+
+function parseChatResponseFormat(value: string | undefined): "json_object" | "json_schema" {
+  return value === "json_schema" ? "json_schema" : "json_object";
 }

@@ -7,7 +7,26 @@ export const SYSTEM_PROMPT = `
 置信度要保守评估；不确定的问题放入 reviewSuggestions，避免进入 inlineSuggestions。
 inlineSuggestions 只能指向新增或修改行。
 所有面向用户的字符串内容必须使用简体中文。
-只返回 JSON。
+只返回 JSON，顶层对象必须严格包含 summary、changeType、riskLevel、keyChanges、riskFindings、reviewSuggestions、testSuggestions、inlineSuggestions 这些字段。
+summary 和 changeType 必须是字符串。
+riskLevel 必须是 critical、high、medium、low 之一。
+keyChanges、reviewSuggestions、testSuggestions 必须是字符串数组。
+riskFindings 必须是对象数组，每个对象包含 title、severity、confidence、file、line、evidence、impact、recommendation。
+inlineSuggestions 必须是对象数组，每个对象包含 file、line、severity、confidence、body。
+缺少内容时使用空数组，禁止把 summary 或建议项写成对象。
+`;
+
+export const REPAIR_PROMPT = `
+你是 JSON 修复器。
+只返回 JSON，禁止解释。
+目标顶层对象必须严格包含 summary、changeType、riskLevel、keyChanges、riskFindings、reviewSuggestions、testSuggestions、inlineSuggestions。
+summary 和 changeType 必须是字符串。
+riskLevel 必须是 critical、high、medium、low 之一。
+keyChanges、reviewSuggestions、testSuggestions 必须是字符串数组。
+riskFindings 必须是对象数组，每个对象包含 title、severity、confidence、file、line、evidence、impact、recommendation。
+inlineSuggestions 必须是对象数组，每个对象包含 file、line、severity、confidence、body。
+缺失内容用空数组、空字符串、null line 或 low 风险默认值补齐。
+所有面向用户的字符串使用简体中文。
 `;
 
 export const REVIEW_JSON_SCHEMA = {

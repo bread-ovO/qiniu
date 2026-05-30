@@ -46,6 +46,7 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.2
 OPENAI_BASE_URL=
 OPENAI_API_MODE=responses
+OPENAI_CHAT_RESPONSE_FORMAT=json_object
 MAX_INLINE_COMMENTS=5
 MIN_INLINE_CONFIDENCE=0.75
 MAX_DIFF_CHARS=120000
@@ -60,12 +61,13 @@ OPENAI_API_KEY=your-provider-key
 OPENAI_MODEL=qwen-plus
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 OPENAI_API_MODE=chat
+OPENAI_CHAT_RESPONSE_FORMAT=json_object
 ```
 
 两种模型调用模式：
 
 - `responses`：使用 OpenAI Responses API，适合官方 OpenAI 模型。
-- `chat`：使用 `/v1/chat/completions`，适合 OpenAI-compatible API。
+- `chat`：使用 `/v1/chat/completions`，适合 OpenAI-compatible API。默认 `OPENAI_CHAT_RESPONSE_FORMAT=json_object`，兼容性更好；确认网关支持 JSON Schema 后可以改成 `json_schema`。
 
 ## 工作流程
 

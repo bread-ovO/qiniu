@@ -18,7 +18,8 @@ describe("loadConfig", () => {
       openAIAPIKey: "test-key",
       openAIModel: "qwen-plus",
       openAIBaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      openAIApiMode: "chat"
+      openAIApiMode: "chat",
+      openAIChatResponseFormat: "json_object"
     });
   });
 });
