@@ -1,9 +1,14 @@
 import { loadConfig } from "./config.js";
-import type { ReviewOptions, ReviewPolicy } from "./types.js";
+import type { FixCommandOptions, ReviewOptions, ReviewPolicy } from "./types.js";
 
 export interface ReviewCommand {
   shouldRun: boolean;
   overrides: Partial<Pick<ReviewOptions, "mode" | "maxInlineComments" | "minInlineConfidence" | "maxDiffChars">>;
+}
+
+export interface FixCommand {
+  shouldRun: boolean;
+  options: FixCommandOptions;
 }
 
 export function parseReviewCommand(body: string): ReviewCommand {
@@ -56,6 +61,34 @@ export function parseReviewCommand(body: string): ReviewCommand {
   }
 
   return { shouldRun: true, overrides: removeUndefined(overrides) };
+}
+
+export function parseFixCommand(body: string): FixCommand {
+  const commandLine = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line === "/ai-fix" || line.startsWith("/ai-fix "));
+
+  if (!commandLine) {
+    return { shouldRun: false, options: { dryRun: false, maxFiles: 3 } };
+  }
+
+  const args = commandLine.split(/\s+/).slice(1);
+  const options: FixCommandOptions = { dryRun: false, maxFiles: 3 };
+
+  for (const arg of args) {
+    if (arg === "--dry-run") {
+      options.dryRun = true;
+      continue;
+    }
+
+    const [key, value] = arg.split("=", 2);
+    if (key === "--max-files" && value) {
+      options.maxFiles = positiveInteger(value) ?? options.maxFiles;
+    }
+  }
+
+  return { shouldRun: true, options };
 }
 
 export function buildReviewOptions(policy: ReviewPolicy, overrides: ReviewCommand["overrides"]): ReviewOptions {

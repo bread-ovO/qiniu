@@ -1,6 +1,10 @@
+import { inferRelatedContextPaths } from "./context.js";
 import { REPORT_MARKER, renderProcessingComment } from "./render.js";
 import { DEFAULT_REVIEW_POLICY, parseReviewPolicy } from "./policy.js";
-import type { AnalysisResult, PullRequestContext, ReviewPolicy } from "./types.js";
+import { shouldSkipFile } from "./diff.js";
+import type { AnalysisResult, FileSnapshot, FixPlan, PullRequestContext, ReviewPolicy } from "./types.js";
+
+const AI_FIX_VERIFY_WORKFLOW = "ai-fix-verify.yml";
 
 type Octokit = any;
 
@@ -30,6 +34,8 @@ export async function getPullRequestContext(
     headRef: pull.data.head.ref,
     baseSha: pull.data.base.sha,
     headSha: pull.data.head.sha,
+    headRepoOwner: pull.data.head.repo?.owner?.login ?? repoRef.owner,
+    headRepoName: pull.data.head.repo?.name ?? repoRef.repo,
     commits: commits.map((commit: any) => commit.commit.message),
     files: files.map((file: any) => ({
       filename: file.filename,
@@ -41,6 +47,204 @@ export async function getPullRequestContext(
       rawUrl: file.raw_url
     }))
   };
+}
+
+export async function getChangedFileSnapshots(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  ref: string,
+  paths: string[]
+): Promise<FileSnapshot[]> {
+  const snapshots: FileSnapshot[] = [];
+
+  for (const path of paths) {
+    if (shouldSkipFile(path)) {
+      continue;
+    }
+
+    const response = await octokit.rest.repos.getContent({
+      ...repoRef,
+      path,
+      ref
+    });
+
+    if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+      continue;
+    }
+
+    snapshots.push({
+      path,
+      content: Buffer.from(response.data.content, "base64").toString("utf8")
+    });
+  }
+
+  return snapshots;
+}
+
+export async function getRelatedContextSnapshots(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  ref: string,
+  changedPaths: string[]
+): Promise<FileSnapshot[]> {
+  return getRepositoryFileSnapshots(octokit, repoRef, ref, inferRelatedContextPaths(changedPaths));
+}
+
+export async function getRepositoryFileSnapshots(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  ref: string,
+  paths: string[]
+): Promise<FileSnapshot[]> {
+  const snapshots: FileSnapshot[] = [];
+
+  for (const path of paths) {
+    try {
+      const response = await octokit.rest.repos.getContent({
+        ...repoRef,
+        path,
+        ref
+      });
+
+      if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.content) {
+        continue;
+      }
+
+      snapshots.push({
+        path,
+        content: Buffer.from(response.data.content, "base64").toString("utf8")
+      });
+    } catch (error: any) {
+      if (error.status === 404) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  return snapshots;
+}
+
+export async function dispatchVerificationWorkflow(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  ref: string,
+  commitSha: string,
+  verificationCommands: string[]
+): Promise<boolean> {
+  if (verificationCommands.length === 0) {
+    return false;
+  }
+
+  try {
+    await octokit.rest.actions.createWorkflowDispatch({
+      ...repoRef,
+      workflow_id: AI_FIX_VERIFY_WORKFLOW,
+      ref,
+      inputs: {
+        commit_sha: commitSha,
+        commands: verificationCommands.join("\n")
+      }
+    });
+
+    return true;
+  } catch (error: any) {
+    if (error.status === 403 || error.status === 404) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+export async function createVerificationCheck(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  headSha: string,
+  verificationCommands: string[]
+): Promise<string | undefined> {
+  if (verificationCommands.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const response = await octokit.rest.checks.create({
+      ...repoRef,
+      name: "AI Fix Verification Plan",
+      head_sha: headSha,
+      status: "completed",
+      conclusion: "neutral",
+      output: {
+        title: "AI 修复验证计划",
+        summary: [
+          "Bot 已生成修复提交。请在 CI 或本地执行以下验证命令：",
+          "",
+          ...verificationCommands.map((command) => `- \`${command}\``)
+        ].join("\n")
+      }
+    });
+
+    return response.data.html_url;
+  } catch (error: any) {
+    if (error.status === 403 || error.status === 404) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+export async function commitFixPlan(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  branch: string,
+  expectedHeadSha: string,
+  plan: FixPlan
+): Promise<string> {
+  const refName = `heads/${branch}`;
+  const ref = await octokit.rest.git.getRef({ ...repoRef, ref: refName });
+  const currentHeadSha = ref.data.object.sha;
+  if (currentHeadSha !== expectedHeadSha) {
+    throw new Error("PR head 已更新，请重新运行 /ai-fix。");
+  }
+
+  const headCommit = await octokit.rest.git.getCommit({ ...repoRef, commit_sha: currentHeadSha });
+  const tree = [];
+
+  for (const file of plan.files) {
+    const blob = await octokit.rest.git.createBlob({
+      ...repoRef,
+      content: file.content,
+      encoding: "utf-8"
+    });
+    tree.push({
+      path: file.path,
+      mode: "100644",
+      type: "blob",
+      sha: blob.data.sha
+    });
+  }
+
+  const newTree = await octokit.rest.git.createTree({
+    ...repoRef,
+    base_tree: headCommit.data.tree.sha,
+    tree
+  });
+  const commit = await octokit.rest.git.createCommit({
+    ...repoRef,
+    message: `fix: apply AI generated PR fixes\n\n${plan.summary}`,
+    tree: newTree.data.sha,
+    parents: [currentHeadSha]
+  });
+
+  await octokit.rest.git.updateRef({
+    ...repoRef,
+    ref: refName,
+    sha: commit.data.sha
+  });
+
+  return commit.data.sha;
 }
 
 export async function getReviewPolicy(
@@ -99,6 +303,15 @@ export async function updateReportComment(
   body: string
 ): Promise<void> {
   await octokit.rest.issues.updateComment({ ...repoRef, comment_id: commentId, body });
+}
+
+export async function createIssueComment(
+  octokit: Octokit,
+  repoRef: RepoRef,
+  issueNumber: number,
+  body: string
+): Promise<void> {
+  await octokit.rest.issues.createComment({ ...repoRef, issue_number: issueNumber, body });
 }
 
 export async function addEyesReaction(

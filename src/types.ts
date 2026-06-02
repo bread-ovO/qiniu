@@ -21,8 +21,11 @@ export interface PullRequestContext {
   headRef: string;
   baseSha: string;
   headSha: string;
+  headRepoOwner: string;
+  headRepoName: string;
   commits: string[];
   files: ChangedFile[];
+  relatedContext?: FileSnapshot[];
 }
 
 export interface ReviewPolicy {
@@ -81,4 +84,38 @@ export interface AnalysisResult {
   skippedFiles: string[];
   scannedFiles: number;
   options: ReviewOptions;
+}
+
+export interface FixCommandOptions {
+  dryRun: boolean;
+  maxFiles: number;
+}
+
+export interface FileSnapshot {
+  path: string;
+  content: string;
+}
+
+export interface FileFix {
+  path: string;
+  reason: string;
+  content: string;
+}
+
+export interface FixPlan {
+  summary: string;
+  confidence: number;
+  files: FileFix[];
+  verificationCommands: string[];
+  risks: string[];
+}
+
+export interface FixResult {
+  plan: FixPlan;
+  dryRun: boolean;
+  committed: boolean;
+  commitSha?: string;
+  verificationCheckUrl?: string;
+  verificationWorkflowDispatched?: boolean;
+  fallbackReason?: string;
 }

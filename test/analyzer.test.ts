@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReport } from "../src/analyzer.js";
+import { buildModelInput, parseReport } from "../src/analyzer.js";
 import { SYSTEM_PROMPT } from "../src/prompts.js";
 
 describe("SYSTEM_PROMPT", () => {
@@ -7,6 +7,43 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toContain("顶层对象必须严格包含");
     expect(SYSTEM_PROMPT).toContain("summary 和 changeType 必须是字符串");
     expect(SYSTEM_PROMPT).toContain("禁止把 summary 或建议项写成对象");
+  });
+});
+
+describe("buildModelInput", () => {
+  it("includes related repository context when available", () => {
+    const input = buildModelInput(
+      {
+        owner: "bread-ovO",
+        repo: "qiniu",
+        number: 1,
+        title: "Update analyzer",
+        body: "",
+        author: "alice",
+        baseRef: "main",
+        headRef: "feature",
+        baseSha: "base",
+        headSha: "head",
+        headRepoOwner: "bread-ovO",
+        headRepoName: "qiniu",
+        commits: ["feat: update analyzer"],
+        files: [],
+        relatedContext: [{ path: "test/analyzer.test.ts", content: "expect(parseReport(...))" }]
+      },
+      "diff",
+      [],
+      {
+        mode: "all",
+        maxInlineComments: 5,
+        minInlineConfidence: 0.75,
+        maxDiffChars: 120000,
+        policy: { ignorePaths: [], reviewInstructions: [] }
+      }
+    );
+
+    expect(input).toContain("相关仓库上下文");
+    expect(input).toContain("--- test/analyzer.test.ts");
+    expect(input).toContain("expect(parseReport(...))");
   });
 });
 

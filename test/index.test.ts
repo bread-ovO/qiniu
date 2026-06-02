@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReviewCommand } from "../src/command.js";
+import { parseFixCommand, parseReviewCommand } from "../src/command.js";
 import { isReviewCommand } from "../src/index.js";
 
 describe("isReviewCommand", () => {
@@ -22,5 +22,21 @@ describe("isReviewCommand", () => {
 
   it("ignores unrelated slash commands", () => {
     expect(isReviewCommand("/ai-reviewer")).toBe(false);
+  });
+});
+
+describe("parseFixCommand", () => {
+  it("matches dry-run fix commands", () => {
+    expect(parseFixCommand("/ai-fix --dry-run --max-files=2")).toEqual({
+      shouldRun: true,
+      options: {
+        dryRun: true,
+        maxFiles: 2
+      }
+    });
+  });
+
+  it("ignores unrelated fix-like commands", () => {
+    expect(parseFixCommand("/ai-fixer").shouldRun).toBe(false);
   });
 });

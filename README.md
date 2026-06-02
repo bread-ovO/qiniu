@@ -22,13 +22,16 @@ npm run dev
 创建 GitHub App，并配置权限：
 
 - Pull requests: read/write
-- Contents: read
+- Checks: read/write
+- Actions: read/write
+- Contents: read/write
 - Issues: read/write
 - Metadata: read
 
 订阅事件：
 
 - Issue comment
+- Workflow run
 
 本地调试时可以使用 Smee 或 ngrok 把 GitHub webhook 转发到本地 Probot 服务。Smee 需要先在浏览器打开 `https://smee.io/new` 创建 channel，再复制生成的 channel URL：
 
@@ -51,6 +54,14 @@ MAX_INLINE_COMMENTS=5
 MIN_INLINE_CONFIDENCE=0.75
 MAX_DIFF_CHARS=120000
 ```
+
+启动时会自动校验关键配置。常见错误：
+
+- `PRIVATE_KEY` 必须复制 `.pem` 文件完整内容，并用双引号包住多行值。
+- `OPENAI_API_MODE=chat` 时，`OPENAI_BASE_URL` 必须以 `/v1` 结尾。
+- `MIN_INLINE_CONFIDENCE` 必须在 `0` 到 `1` 之间。
+- `MAX_INLINE_COMMENTS` 必须是大于等于 `0` 的整数。
+- `MAX_DIFF_CHARS` 必须是大于 `0` 的整数。
 
 ### OpenAI-compatible API
 
@@ -79,12 +90,62 @@ OPENAI_CHAT_RESPONSE_FORMAT=json_object
 6. Bot 过滤 inline 建议，仅保留 `confidence >= 0.75` 且位于新增 diff 行的建议。
 7. Bot 更新总报告评论，并发布高置信度 inline review。
 
+## 从 0 到跑通
+
+按这个 checklist 验证本地 GitHub App 链路：
+
+1. 创建 GitHub App。
+   - `Homepage URL` 填仓库地址，例如 `https://github.com/bread-ovO/qiniu`。
+   - `Webhook URL` 填 Smee channel URL。
+   - `Webhook Secret` 填 `.env` 中的 `WEBHOOK_SECRET`。
+2. 配置仓库权限。
+   - `Pull requests`: read/write
+   - `Checks`: read/write
+   - `Actions`: read/write
+   - `Issues`: read/write
+   - `Contents`: read/write
+   - `Metadata`: read
+3. 订阅事件。
+   - `Issue comment`
+   - `Workflow run`
+4. 安装 GitHub App 到目标仓库。
+5. 启动 Smee 转发。
+
+```bash
+npx smee-client --url https://smee.io/your-channel-id --target http://localhost:3000/api/github/webhooks
+```
+
+6. 启动 Bot。
+
+```bash
+NO_PROXY=localhost,127.0.0.1 LOG_LEVEL=debug PORT=3000 npm run dev
+```
+
+7. 创建或打开一个测试 PR，在评论区输入：
+
+```text
+/ai-review
+```
+
+8. 观察结果。
+   - Smee 终端出现转发日志。
+   - Bot 终端出现 `issue_comment` 处理日志。
+   - PR 中先出现“正在分析，请稍候。”，随后更新为中文评审报告。
+
+排错入口：
+
+- GitHub App 页面 `Advanced -> Recent Deliveries` 可以查看 webhook 请求和响应。
+- Bot 启动失败时优先检查 `.env` 校验错误。
+- 兼容模型网关返回 HTML 时，检查 `OPENAI_BASE_URL` 是否指向 `/v1` API 地址。
+- 模型返回结构异常时，Bot 会自动尝试修复一次，并在失败时显示响应预览。
+
 ## 命令参数
 
 基础命令：
 
 ```text
 /ai-review
+/ai-fix
 ```
 
 可选参数：
@@ -96,6 +157,8 @@ OPENAI_CHAT_RESPONSE_FORMAT=json_object
 /ai-review --max-inline=3
 /ai-review --min-confidence=0.85
 /ai-review --max-diff=80000
+/ai-fix --dry-run
+/ai-fix --max-files=3
 ```
 
 - `--report-only`：只更新总报告评论。
@@ -104,6 +167,21 @@ OPENAI_CHAT_RESPONSE_FORMAT=json_object
 - `--max-inline`：本次运行最多发布的 inline 评论数。
 - `--min-confidence`：本次运行发布 inline 评论的最低置信度。
 - `--max-diff`：本次运行发送给模型的最大 diff 字符数。
+- `/ai-fix`：基于当前 PR 的高置信度风险生成自动修复，并提交到同仓库 PR head 分支。
+- `/ai-fix --dry-run`：只评论修复计划，不提交代码。
+- `/ai-fix --max-files`：限制本次最多修改的文件数，默认 `3`。
+
+自动修复策略：
+
+- 只处理 `confidence >= 0.8` 的风险。
+- 只允许修改当前 PR 已变更文件。
+- 自动读取 `package.json` 并推断验证命令，例如 `npm test`、`npm run typecheck`、`npm run build`。
+- 成功提交自动修复后，会在修复 commit 上创建一个 neutral GitHub Check Run，展示验证计划。
+- 同时触发 `.github/workflows/ai-fix-verify.yml`，由 GitHub Actions checkout 修复 commit 并执行推断出的验证命令。
+- 监听 `workflow_run.completed`，验证通过时自动回写 PR；验证失败时拉取失败 Job 日志片段，并回写 Actions Run、失败 Job、失败步骤和日志摘要，形成修复后的反馈闭环。
+- 过滤模型给出的危险验证命令，例如 `rm -rf` 和 `curl ... | bash`。
+- PR 来自 fork 时降级为修复计划评论，不直接提交。
+- 没有可安全修复内容时只评论原因。
 
 ## 团队配置
 
@@ -134,6 +212,7 @@ reviewInstructions:
 第一版优先保证速度和信号密度：
 
 - 始终包含 PR 标题、描述、作者、base/head 分支、commit message 和文件变更元数据。
+- 自动补充 TypeScript 源码与测试文件的对应上下文，例如 `src/foo.ts` 会尝试读取 `test/foo.test.ts` / `test/foo.spec.ts`，测试变更也会反向读取 `src/foo.ts`。
 - 按 `MAX_DIFF_CHARS` 限制 unified diff 输入规模。
 - 跳过生成文件、lockfile，以及 `.ai-review.yml` 中配置的忽略路径。
 - 要求每条风险都引用 diff 中的具体证据。
