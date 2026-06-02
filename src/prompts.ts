@@ -29,6 +29,16 @@ inlineSuggestions 必须是对象数组，每个对象包含 file、line、sever
 所有面向用户的字符串使用简体中文。
 `;
 
+export const FIX_PROMPT = `
+你是一个保守的代码修复 agent。
+只返回 JSON，禁止解释。
+目标是修复 PR 中高置信度、证据明确、影响具体的 bug。
+只允许修改用户提供的候选文件，禁止新增文件、删除文件、修改 lockfile、修改生成文件。
+返回 files 数组时，每一项必须包含 path、reason、content，其中 content 是修复后的完整文件内容。
+无法安全修复时返回空 files 数组，并在 risks 中说明原因。
+所有面向用户的字符串使用简体中文。
+`;
+
 export const REVIEW_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -93,5 +103,31 @@ export const REVIEW_JSON_SCHEMA = {
         }
       }
     }
+  }
+} as const;
+
+export const FIX_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "confidence", "files", "verificationCommands", "risks"],
+  properties: {
+    summary: { type: "string" },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    files: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "reason", "content"],
+        properties: {
+          path: { type: "string" },
+          reason: { type: "string" },
+          content: { type: "string" }
+        }
+      }
+    },
+    verificationCommands: { type: "array", items: { type: "string" }, maxItems: 6 },
+    risks: { type: "array", items: { type: "string" }, maxItems: 8 }
   }
 } as const;

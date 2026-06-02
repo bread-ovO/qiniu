@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { type AppConfig, loadConfig } from "./config.js";
+import { formatRelatedContextForModel } from "./context.js";
 import { buildDiffIndex, filterInlineSuggestions, formatDiffForModel } from "./diff.js";
 import { REPAIR_PROMPT, REVIEW_JSON_SCHEMA, SYSTEM_PROMPT } from "./prompts.js";
 import { reviewReportSchema } from "./schemas.js";
@@ -275,12 +276,14 @@ function previewResponse(response: unknown): string {
   }
 }
 
-function buildModelInput(
+export function buildModelInput(
   pr: PullRequestContext,
   diffContent: string,
   skippedFiles: string[],
   options: ReviewOptions
 ): string {
+  const relatedContext = formatRelatedContextForModel(pr.relatedContext);
+
   return [
     "请评审这个 GitHub Pull Request。",
     "",
@@ -321,6 +324,9 @@ function buildModelInput(
       null,
       2
     ),
+    "",
+    "相关仓库上下文：",
+    relatedContext || "没有额外仓库上下文。",
     "",
     "Unified diff：",
     diffContent || "没有可用的文本 diff。"

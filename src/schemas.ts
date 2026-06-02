@@ -31,3 +31,17 @@ export const reviewReportSchema = z.object({
     })
   )
 });
+
+export const fixPlanSchema = z.object({
+  summary: z.string(),
+  confidence: z.number().min(0).max(1),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      reason: z.string(),
+      content: z.string()
+    })
+  ),
+  verificationCommands: z.array(z.string()),
+  risks: z.array(z.string())
+});
